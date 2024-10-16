@@ -1,0 +1,387 @@
+---
+output: 
+  pdf_document:
+    keep_tex: true
+editor_options: 
+  chunk_output_type: console
+---
+
+\newcommand\textpkg[1]{\textbf{\texttt{#1}}}
+
+```{r, include = FALSE}
+# Demonstration of QTLExperiment and multistateQTL 
+# Amelia Dunstone
+# 2024-10-02
+
+# Analysis for Chapter 5: Case Study Lung Data
+```
+
+```{r knitr-options, echo=FALSE}
+knitr::opts_chunk$set(
+    # warning=FALSE, 
+    # error=FALSE, 
+    # message=FALSE, 
+    fig.height=6, 
+    fig.width=8)
+```
+
+```{r setup, message = FALSE, results = 'hide', echo = FALSE}
+library(dplyr)
+library(here)
+library(patchwork)
+```
+
+<!-- NOTES: -->
+<!-- # section -->
+<!-- ## subsection -->
+<!-- ### subsubsection -->
+
+
+This chapter demonstrates the use of the packages \textpkg{QTLExperiment} and \textpkg{multistateQTL} with the single-cell lung tissue data from \textcite{Natri_2024_lung}.
+This paper investigated genetic variants which may be contributing to the development of Pulmonary Fibrosis (PF), as well as identifed eQTLs specific to a certain cell-type or associated with disease status.
+The data consists of lung cells from 67 donors with interstitial lung disease (ILD) and 49 healthy donors.
+In this study, *cis* eQTLs were tested, but with a large searching distance (1 Gb). 
+
+Single-cell RNA sequencing experiments often have hundreds of thousands of cells, and in this particular data set there were 475,047 cells following quality control.
+In most multi-state QTL pipelines, it would be too computationally demanding to treat each cell-type as a state.
+Therefore to perform the multi-state eQTL analysis, we will use results from the aggregated scRNA-seq data.
+Unlike tissue type which is a known clinical variable, cell-types must be determined during the annotation step of scRNA-seq analysis.
+
+
+# Single-cell RNA-seq analysis
+
+We start from the processed Seurat object, available in GEO. 
+This object has undergone various analysis steps using Seurat version 4.0 \autocite{Hao_2021_Seurat}. 
+The authors of the \textcite{Natri_2024_lung} paper describe these steps in detail in the Methods, but I will provide an abridged version here. 
+The scRNA-seq analysis included data filtering, clustering, cell-type annotation and removal of doublets.
+The data were classified into 38 cell-types and 4 lineages: immune, epithelial, mesenchymal, and endothelial cells.
+
+In the analysis in this chapter I have subset the data to 10 cell types from across the 4 lineages. 
+The scripts `5_subset_seurat.R` and `6_explore_suerat.R` show the R code that I used to take a smaller subset of the Seurat object, and plot the data. 
+As the data object supplied on *GEO* was processed, the only required steps were computing principal components, obtaining clusters, and plotting the data.
+These were selected as they are the most abundant cell-types for each lineage. 
+The selected cell-types are shown below, overlayed on a Uniform Manifold Approximation and Projection (UMAP) plot \autocite{McInnes_2018_UMAP}. 
+UMAP plots are a type of dimensionality reduction commonly used for visualising scRNA-seq data. 
+In this plot, each dot represents a cell, and the closer two cells are to each other, the more similar their gene expression is.
+ 
+\begin{figure}[h]
+\centering
+\includegraphics{Figures/scRNAseq.png}
+\caption{UMAP plot of single-cell RNA-sequencing gene expression. Each point represents a cell, and they are coloured by lineage. The cell-type labels are overlayed in their approximate average location.}
+\end{figure}
+
+
+To perform eQTL analysis using single-cell data, it is common to aggregate the gene expression counts. 
+\textcite{Natri_2024_lung} normalised the raw gene expression counts and aggregated the data to get a single value for each gene, donor, and cell-type. 
+At this stage, the data can be analysed in the same way as was done for the bulk tissue scenario in chapter \ref{Ch4_GTEx}.
+The *cis*-eQTL mapping was performed using LIMIX \autocite{Lippert_2014_LIMIX}, which implements linear mixed models.
+The summary statistics output from LIMIX include betas, errors and p-values for each association test (gene ID and variant ID) in each state. 
+The cell-types (states) I have included are shown in the below table. 
+<!-- SNPs were filtered to include SNPs with an MAF greater than 5% and other filters, overall there were 1.9 million SNPs. Associations were tested 1 Gb upstream and downstream of the gene body (cis eQTLs) -->
+<!--   -->
+
+
+\footnotesize
+```{r, echo = FALSE}
+input_path <- here("Natri_2024_Lung/data/limix/")
+
+state <- read.table(file.path(input_path, "filenames_limix"))$V1
+state <- gsub("_qtl_results_all.txt", "", state)
+
+input <- data.frame(
+    state=state, 
+    path=paste0(input_path, state, "_qtl_results_all.txt"))
+input$broad_type <- sapply(strsplit(input$state, "_"), "[", 1)
+
+# Most abundant cell types (most number of people with at least 5 cell types)
+
+# Immune: MDM, Inflammatory monocyte, moDC,
+# 
+# Mesenchymal: Advential FB, Alveolar FB, SMC?
+#   
+# Epithelial: Alveolar type 2, Ciliated, Sec - SCGB1A1+/SCGB3A2,
+# 
+# Endothelial: Arteriole, Venule, aCap?
+
+# 10 states, 11 minutes to load
+selected_states <- c("immune_Monocyte-derivedmacrophage", 
+    "immune_Inflammatorymonocyte", 
+    "immune_moDC", 
+    "mesenchymal_AdventitialFB",
+    "mesenchymal_AlveolarFB",
+    "epithelial_AT2",
+    "epithelial_Ciliated",
+    "epithelial_Secretory-SCGB1A1+SCGB3A2+",
+    "endothelial_arteriole",
+    "endothelial_venule")
+
+input_reduced <- input[input$state %in% selected_states,]
+
+input_table <- input_reduced[, c("broad_type", "state")]    
+
+input_table %>% knitr::kable(col.names = c("Lineage", "Cell-type"))
+
+# Add cell counts
+# colData <- read.csv(here("Natri_2024_Lung/data/seurat/colData.csv"))
+# input_table$counts <- colData$
+# input_table %>% knitr::kable(col.names = c("Lineage", "Cell-type", "Number of cells"))
+```
+\normalsize
+
+## Downloading and preparing data
+
+The LIMIX summary statistics were downloaded from the GEO link in the 'Data Availability' section of the \textcite{Natri_2024_lung} paper and the `.tar.gz` files were extracted (See `1_download_files.R` and `2_extract_data.sh`).  
+The data was then subset to 10 cell-types in `3_subset_data.R`. 
+
+
+# Joint cell-type eQTL analysis with \texttt{mashr}
+
+This section demonstrates the usage of multivariate adaptive shrinkage \autocite{Urbut_2019_mashr} in R. 
+The analysis follows the steps outlined in the \href{https://stephenslab.github.io/mashr/articles/eQTL_outline.html}{`eQTL analysis outline'} vignette from the mashr authors, but is modified to make use of \textpkg{QTLExperiment} functions.
+The time intensive code chunks in this section are not evaluated, but the same code is included in the script `4_run_mashr.R`. 
+
+I begin by loading the required packages and reading in the `qtle` object which contains the summary statistics. 
+
+\footnotesize
+```{r, message = FALSE, results = 'hide', warning = FALSE}
+library(QTLExperiment)
+library(multistateQTL)
+
+qtle <- readRDS(file ="Natri_2024_Lung/data/qtle_limix_10_states.rds")
+```
+\normalsize
+
+## Obtain 'strong' and 'random' subsets
+
+The 'eQTL analysis outline' provides an overview of the steps that can be used to run mashr, tailored for multi-state eQTL data. 
+As eQTL data has millions of tests across dozens of conditions, it can be slow to run mashr on the full data set for each step. 
+There are some steps which produce unbiased statistical estimates if performed on a random subset, so this technique can be used to speed up analysis. 
+Stephens proposes a workflow which includes two subsets of tests for the data, referred to as the "strong" subset and the "random" subset. 
+
+- **strong subset**: Results from a subset of "strong" tests corresponding to stronger effects in the study. These are helpful to model data driven covariance matrices. 
+- **random subset**: The "random" subset contains an unbiased random subset of all tests. It is important that this sample is unbiased as it needs to include null and non-null tests in similar proportions to the original data. This can be used to estimate the signal and null distribution of the data.
+
+We select 5000 random rows from the QTLExperiment object, without replacement. 
+\footnotesize
+```{r}
+# Identify a random subset of 5000 tests
+random.subset <- sample(nrow(qtle), 5000)
+head(random.subset)
+```
+\normalsize
+
+Using the `getTopHits()` function from \textpkg{multistateQTL}, we select the global eQTLs to form our strong subset. 
+Prior to this, it is necessary to remove NA values from the data. 
+Rows with NA values in more than half of the states are removed. 
+The remaining NA values are imputed using default values.
+After filtering to the top eQTLs for each gene, there are 9118 genes, each with one variant ID.
+\footnotesize
+```{r}
+# Remove and impute NA values
+qtle_na <- getComplete(qtle, n=0.5)
+qtle_na <- replaceNAs(qtle_na)
+
+# Take the top test for each gene for the 'strong' subset
+qtle_strong <- getTopHits(qtle_na, assay="pvalues", mode="global")
+
+# Convert to just indices
+strong.subset <- which(rownames(qtle) %in% rownames(qtle_strong))
+length(strong.subset)
+```
+\normalsize
+
+## Run `mashr`
+
+The code chunk below converts the full QTLExperiment object into a `mash` object. 
+\footnotesize
+```{r, message = FALSE, results = 'hide', warning = FALSE}
+library(ashr)
+library(mashr)
+
+# Convert to mash object
+mashed <- mash_set_data(Bhat = betas(qtle), Shat = errors(qtle))
+```
+\normalsize
+
+Learn the correlation structure using the random subset.
+\footnotesize
+```{r}
+data.temp <- mash_set_data(
+    mashed$Bhat[random.subset,], 
+    mashed$Shat[random.subset,])
+Vhat <- estimate_null_correlation_simple(data.temp)
+rm(data.temp)
+
+data.random <- mash_set_data(
+    mashed$Bhat[random.subset,], 
+    mashed$Shat[random.subset,], 
+    V=Vhat)
+data.strong <- mash_set_data(
+    mashed$Bhat[strong.subset,], 
+    mashed$Shat[strong.subset,], 
+    V=Vhat)
+```
+\normalsize
+
+Learn data-driven covariance matrices using the subset of 'strong' test results. 
+These are the top eQTLs across the data set so will be helpful in estimating the relationship between different states. 
+\footnotesize
+```{r, eval = FALSE}
+U.pca <- cov_pca(data.strong, 5)
+U.ed <- cov_ed(data.strong, U.pca)
+```
+\normalsize
+
+Fit the mashr model to the random tests, to learn the mixture weights on all the different covariance matrices and scaling coefficients.
+\footnotesize
+```{r, eval = FALSE}
+# Fit the mashr model 
+U.c <- cov_canonical(data.random)
+
+m <- mash(data.random, Ulist = c(U.ed, U.c), outputlevel = 1)
+```
+\normalsize
+\footnotesize
+```{r, echo = FALSE}
+m <- readRDS("Natri_2024_Lung/data/mashr_10_states.rds")
+```
+\normalsize
+
+The below functions are exported from `mashr` and generate the assays which can be loaded into the QTLExperiment object. 
+
+- `get_pm`: posterior mean
+- `get_psd`: posterior standard deviation
+- `get_lfsr`:  local false sign rate
+
+The fitted values can be calculated for any subset, but here we have used the 'strong' subset as in the eQTL analysis tutorial. 
+
+
+\footnotesize
+```{r}
+mfit = mash(data.strong, g=get_fitted_g(m), fixg=TRUE)
+
+betas.strong <- get_pm(mfit)
+errors.strong <- get_psd(mfit)
+lfsrs.strong <- get_lfsr(mfit)
+```
+\normalsize
+
+Figure \ref{fig:pval-plot} compares the p-values from the LIMIX output with the corrected LFSRs from the `mashr` output. 
+The distribution has been shifted to the right after accounting for the information from other states.
+Some significant p-values will not be significant after this correction. 
+
+\footnotesize \label{fig:pval-plot}
+```{r pval-plot, fig.asp = 1/2, fig.cap = "Comparison of p-values from LIMIX output (left), and LFSRs from mashr output (right).", echo = FALSE}
+par(mfrow = c(1,2))
+hist(pvalues(qtle_strong), xlab = "p-values", main = NULL)
+hist(lfsrs.strong, xlab = "LFSRs from mashr", main = NULL)
+dev.off()
+```
+\normalsize
+
+# Multi-state QTL analysis
+
+We use the `QTLExperiment()` constructor to create a QTLExperiment from the estimates, standard errors, and lfsrs output from `mashr`.
+The numeric assays 'betas', 'errors' and 'lfsrs' are specified as a list, and passed in through the `assays` argument. 
+\footnotesize
+```{r}
+qtle <- QTLExperiment(
+    assays=list(
+        betas=betas.strong,
+        errors=errors.strong,
+        lfsrs=lfsrs.strong),
+    metadata=list(study="Natri_Lung"))
+qtle
+```
+\normalsize
+
+As the basic operations of \textpkg{QTLExperiment} and \textpkg{multistateQTL} have been discussed in Chapter 4, we will briefly perform the necessary filtering and calculations.  
+We begin by updating the colData of the object to include lineage and cell-types. 
+\footnotesize
+```{r}
+head(colnames(qtle))
+# Split state_id into lineage and cell type (state)
+qtle$lineage <- sapply(strsplit(state_id(qtle), "_"), "[", 1)
+state_id(qtle) <- sapply(strsplit(state_id(qtle), "_"), "[", 2)
+head(colData(qtle))
+```
+\normalsize
+
+## Plotting global sharing
+
+A main aim of multi-state eQTL analysis is to better understand the relationship between states.
+One way to measure this is by the proportion of eQTL effects which are shared between pairs of states. 
+
+We begin by calling significance, using a threshold of 0.05 for the LFSRs. 
+We then filter to only rows with some significant states, and calculate the pairwise sharing using `runPairwiseSharing()`.
+The function `plotPairwiseSharing()` produces a heatmap showing the proportion of significant eQTLs which are shared for each pairwise combination of states. 
+This can help us to understand the relationship between the cell-types by their eQTL results. 
+As the columns (and rows) of the plot are clustered, we can see which states are most related. 
+The states from the lineage 'mesenchymal' have less sharing than the immune cell-types. 
+
+\footnotesize
+```{r plot-pairwise-lung}
+qtle <- callSignificance(qtle, assay="lfsrs", thresh=0.05)
+
+message("Median number of significant tests per state: ", 
+        median(colData(qtle_na)$nSignificant))
+# Median number of significant tests per state: 473407
+
+qtle_sig <- getSignificant(qtle)
+qtle_top <- runPairwiseSharing(qtle_sig)
+
+dim(qtle_top)
+
+plotPairwiseSharing(qtle_top, annotateColsBy=c("nSignificant", "lineage"))
+```
+\normalsize
+\footnotesize
+```{r plot-upset-lung}
+plotUpSet(qtle_top, annotateColsBy=c("nSignificant", "lineage"))
+```
+\normalsize
+
+
+## Characterising multi-state QTL patterns
+
+After using `runTestMetrics()` to characterise eQTLs into 'unique', 'multi-state' or 'global', we can see that the majority of eQTLs are unique. 
+\footnotesize
+```{r}
+qtle_top <- runTestMetrics(qtle_top)
+
+table(rowData(qtle_top)$qtl_type)
+```
+\normalsize
+\footnotesize
+```{r plot-qtl-clusters-lung, include = FALSE}
+qtle_top_ms <- subset(qtle_top, qtl_type_simple == "multistate")
+
+# qtle_top_ms <- subset(qtle_top_ms, )
+plotQTLClusters(
+    qtle_top_ms, 
+    annotateColsBy="lineage",
+    annotateRowsBy="qtl_type")
+```
+\normalsize
+
+We can subset to just the unique eQTLs and plot a heatmap of these beta values. 
+This shows that some states have unique eQTLs which have strong effects on the gene expression. 
+For example, the state 'AdventitialFB' has a number of unique eQTLs which cause an increase in the expression of a gene, as well as eQTLs that result in a decrease in gene expression.
+
+\footnotesize
+```{r plot-unique-lung, fig.asp = 3/4}
+qtle_top_unique <- subset(qtle_top, qtl_type_simple == "unique")
+
+plotQTLClusters(
+    qtle_top_unique, 
+    annotateColsBy="lineage",
+    annotateRowsBy=c("qtl_type"))
+```
+
+```{r, include = FALSE}
+knitr::knit_exit()
+```
+
+```{r}
+sessionInfo()
+```
