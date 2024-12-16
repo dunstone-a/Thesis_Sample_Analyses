@@ -1,6 +1,9 @@
-# Thesis Sample Analses
-# Amelia Dunstone
-# 2024-10-05
+---
+title: "Thesis Sample Analses"
+author: "Amelia Dunstone"
+date: "2024-12-16"
+output: html_document
+---
 
 This is a repository to accompany my thesis titled "Statistical methods and software tools for the analysis of multi-state QTL data".
 
