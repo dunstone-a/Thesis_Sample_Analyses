@@ -10,7 +10,7 @@ The files were ran in the following order:
 4_run_mashr.R
 ```
 
-The bash script `run_mashr_job.sh` was used to run file `4_run_mashr.R` to perform multivariate adaptive shrinkage on the eQTL data. 
+The slurm script `run_mashr_job.sh` was used to run file `4_run_mashr.R` to perform multivariate adaptive shrinkage on the eQTL data. 
 
 The seurat related analysis is distinct as it only uses the scRNA-seq data and not the genotype data. 
 The files involved in this analysis are shown below. 
