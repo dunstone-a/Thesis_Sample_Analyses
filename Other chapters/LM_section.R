@@ -16,6 +16,8 @@ plot(p_j, var_p_j, type = "l", xlab = expression(p[j]), ylab = expression(Var(p[
 
 library(ggplot2)
 
+# Create figure 2.1 ------------------------------------------------------------
+
 
 x1 <- 0.05
 y1 <- 2*x1*(1-x1)
@@ -23,7 +25,7 @@ y1 <- 2*x1*(1-x1)
 colours <- c("#315990", "#5AE3EA", "#EA9B60")
 
 p1 <- ggplot(data.frame(x = c(0, 1)), aes(x = x)) +
-    stat_function(fun = function(x) 2 * x * (1 - x), colour = colours[1], size = 1) +  # Main function
+    stat_function(fun = function(x) 2 * x * (1 - x), colour = colours[1], linewidth = 1) +  # Main function
     annotate("segment", x = x1, xend = x1, y = 0, yend = y1, linetype = 2, colour = colours[3]) +  # Vertical dashed line
     annotate("segment", x = 0, xend = x1, y = y1, yend = y1, linetype = 2, colour = colours[3])+  # Horizontal dashed line
     geom_area(stat = "function", fun = function(x) 2 * x * (1 - x), xlim = c(0, x1), fill = colours[3], alpha = 0.2) +  # Shaded area
