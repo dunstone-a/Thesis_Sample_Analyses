@@ -1,0 +1,353 @@
+---
+output: 
+  pdf_document:
+    keep_tex: true
+editor_options: 
+  chunk_output_type: console
+---
+
+\newcommand\textpkg[1]{\textbf{\texttt{#1}}}
+
+```{r, include = FALSE}
+# Demonstration of QTLExperiment and multistateQTL with GTEx data
+# Amelia Dunstone
+# 2024-10-07
+
+# Analysis for Chapter 4: Case Study GTEx data
+```
+
+```{r knitr-options, echo=FALSE}
+knitr::opts_chunk$set(
+    # warning=FALSE, 
+    # error=FALSE, 
+    # message=FALSE, 
+    fig.height=6, 
+    fig.width=8)
+```
+
+```{r setup, message = FALSE, results = 'hide', echo = FALSE}
+library(dplyr)
+library(here)
+```
+
+This chapter demonstrates the use of \textpkg{QTLExperiment} and \textpkg{multistateQTL} with data from the GTEx Consortium, version 8 \autocite{GTEx_2020}. 
+The GTEx consortium includes *cis*-eQTL data from 38 tissue types. 
+This chapter interweaves text and R code and output to provide as comprehensive a demonstration as possible of the use of the packages for the analysis of multi-state eQTL data.
+
+# Installing packages
+
+The \textpkg{QTLExperiment} and \textpkg{multistateQTL} packages are available on Bioconductor. 
+To install \textpkg{QTLExperiment}, Bioconductor version 3.18 or later is required, and for \textpkg{multistateQTL} version 3.19 or later is required. 
+The code to install these packages from within R is shown below. 
+
+\footnotesize
+```{r, echo = TRUE, eval = FALSE}
+if (!require("BiocManager", quietly=TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("QTLExperiment")
+BiocManager::install("multistateQTL")
+```
+\normalsize
+Once the packages are installed, it is simple to load the packages into R.
+\footnotesize
+```{r, message = FALSE, results = 'hide', warning = FALSE}
+library(QTLExperiment)
+library(multistateQTL)
+```
+\normalsize
+
+# Loading data
+
+The data for this section can be downloaded from the \href{https://www.gtexportal.org/home/downloads/adult-gtex/qtl}{GTEx Portal}.
+The download link has file name *"GTEx_Analysis_v8_eQTL.tar"*. 
+For each state, the file was extracted.
+I selected 14 tissue types that have at least 200 samples to be used for this demonstration.
+
+The `sumstats2qtle()` function is used to load the data by providing a data frame with the state names and file paths, and information about the relevant columns in the summary statistic files. For the first argument, we provide a data frame with two columns, `state` and `path`.
+This data frame lists the name of each state in the analysis and the file path to summary statistics for that state.
+We also supply the the names of the columns to use for the feature IDs, variant IDs, effect sizes, standard errors, and p-values. 
+
+\footnotesize
+```{r, include = FALSE}
+# https://storage.googleapis.com/adult-gtex/bulk-qtl/v8/single-tissue-cis-qtl/README_eQTL_v8.txt
+# Info about column names
+```
+
+```{r, message = FALSE, results = 'hide', warning = FALSE}
+input_path <- "GTEx/data/"
+
+state <- c("Muscle_Skeletal", "Whole_Blood", "Skin_Sun_Exposed_Lower_leg", 
+    "Adipose_Subcutaneous", "Thyroid", "Lung", "Cells_Cultured_fibroblasts", 
+    "Stomach", "Pancreas", "Pituitary", "Spleen", "Liver", "Brain_Cerebellum",
+    "Brain_Cortex")
+
+input <- data.frame(
+    state=state,
+    path=paste0(input_path, state, ".v8.egenes.txt"))
+
+qtle <- sumstats2qtle(
+    input,
+    feature_id="gene_id",
+    variant_id="variant_id",
+    betas="slope",
+    errors="slope_se",
+    pvalues="pval_nominal")
+```
+
+```{r}
+qtle
+```
+\normalsize
+
+# Basic operations
+
+We can view basic properties of the `QTLExperiment` object such as the number of rows (`nrows`), number of columns (`ncols`), and the dimensions (`dim`).
+This shows that the object contains `r nrow(qtle)` association tests, across `r ncol(qtle)` states. 
+
+\footnotesize
+```{r}
+dim(qtle)
+```
+\normalsize
+
+We can use the `state_id()` setter to change the state IDs, for example to make them shorter.
+Feature IDs or variant IDs can also be updated if needed using the `feature_id()` or `variant_id()` functions. 
+This process will also update the information in all other aspects of the `QTLExperiment` object, such as in the assays, rowData and colData. 
+
+\footnotesize
+```{r}
+state_id(qtle)
+state_id(qtle) <-  c("Muscle", "Blood", "Skin", "Adipose", "Thyroid", "Lung",
+    "Fibroblast", "Stomach", "Pancreas", "Pituitary", "Spleen", "Liver", 
+    "Brain_Cerebellum", "Brain_Cortex")
+state_id(qtle)
+```
+\normalsize
+
+The `betas()`, `errors()` and `pvalues()` functions can be used to view the numeric matrices stored in these assays. 
+In the code below I have subset to show a small portion of the effect sizes from the summary statistics data.
+
+\footnotesize
+```{r}
+betas(qtle)[1:5, 1:4]
+```
+\normalsize
+
+We can add additional columns to the colData of the `qtle` object using the "$" accessor. 
+This can be any type of vector (logical, numeric, character) provided the length of the vector is equal to the number of states in the `qtle` object.
+I have added a grouping of the tissues which does not distinguish between the two types of brain tissues, for use in later visualisations. 
+The colData will automatically update to reflect the additional column. 
+
+\footnotesize
+```{r}
+qtle$broad_type <- c("Muscle", "Blood", "Skin", "Adipose", "Thyroid", "Lung",
+    "Fibroblast", "Stomach", "Pancreas", "Pituitary", "Spleen", "Liver", 
+    "Brain", "Brain")
+colData(qtle)
+```
+\normalsize
+
+It may be of interest to look at the number of genes that are included in the analysis.
+While the number of rows corresponds to Gene:SNP pairs, we can obtain this quantity using the `feature_id()` accessor. 
+
+\footnotesize
+```{r}
+head(rowData(qtle))
+length(unique(feature_id(qtle)))
+```
+\normalsize
+
+This data set has `r dim(qtle)[1]` rows of associations across `r length(table(feature_id(qtle)))` genes. 
+\footnotesize
+```{r, include = FALSE}
+colnames(qtle)
+head(rowData(qtle))
+```
+\normalsize
+
+# Manipulate and Filter
+
+## Dealing with missing data
+
+It is common for there to be NA values in multi-state QTL data, as we are looking for associations between SNPs and gene expression across many states. 
+The `getComplete()` function retains only the rows with values in at least 90% of the states (since we have specified `n=0.9`) .
+
+<!-- The table below shows the number of NA values in each state.  -->
+\footnotesize
+```{r, include = FALSE}
+tab <- table(apply(is.na(pvalues(qtle)), MARGIN = 1, FUN = sum)) 
+names(tab) <- state_id(qtle)
+tab
+```
+\normalsize
+
+
+\footnotesize
+```{r}
+qtle_na <- getComplete(qtle, n=0.9, verbose=TRUE)
+dim(qtle_na)
+```
+\normalsize
+
+We have removed tests which have NA values in 1 or more of the 14 states ($\lceil0.9\times 14\rceil = 13$  complete values needed). 
+This results in `r dim(qtle_na)[1]` rows of association tests.
+
+The `replaceNAs()` function is used to replace NA values in the data using the default method for imputing values. 
+The benefit of imputing data instead of retaining only complete rows is that we can keep more rows of association tests. 
+\footnotesize
+```{r}
+qtle_na <- replaceNAs(qtle_na)
+```
+\normalsize
+
+Following NA removal and replacement we can see that there are no NA effect sizes, and the effect sizes that were previously NA are now 0. 
+\footnotesize
+```{r}
+head(betas(qtle_na))[1:5, 1:4]
+```
+\normalsize
+
+# Calculations
+
+## Calling significance
+
+The `callSignificance()` function can be used to determine which tests are significant for each state. 
+This function creates a new assay called `significant` which has the same dimensions as the *betas*, *errors*, and p-values assays. 
+There are options in this function to perform feature-wise and global multiple-testing correction, but since the p-values provided by the GTEx Consortium have already been adjusted, we will use the `simple` mode. 
+\footnotesize
+```{r}
+qtle_na <- callSignificance(qtle_na, assay="pvalues", thresh=0.05)
+```
+\normalsize
+
+We use the `getSignificant()` function to subset the \textpkg{QTLExperiment} object to only rows with at least one significant test.
+
+\footnotesize
+```{r}
+qtle_sig <- getSignificant(qtle_na)
+```
+\normalsize
+
+# Visualisations
+
+## Plotting global sharing
+
+The function `runPairwiseSharing()` is used to calculate the amount of sharing of QTLs between each pair of states. 
+This information is added to the metadata of the \textpkg{QTLExperiment} object, where it can be viewed directly or visualised using `plotPairwiseSharing()`. 
+The plot shows that there are some states with a higher level of sharing than others, for example states 'Brain_Cortex' and 'Brain_Cerebellum' have over 20% of eQTLs in common, as do states 'Skin' and 'Adipose'. 
+
+\footnotesize
+```{r plot-pairwise-sharing-gtex}
+qtle_top <- runPairwiseSharing(qtle_sig)
+
+# Preview of pairwise sharing matrix
+metadata(qtle_top)$pairwiseSharing[1:3, 1:6]
+
+# Plot pairwise sharing
+plotPairwiseSharing(qtle_top, annotateColsBy=c("nSignificant", "broad_type"))
+```
+\normalsize
+
+
+\textpkg{QTLExperiment} also contains a function to create an UpSet plot.
+This function is based on the function `ComplexHeatmap::UpSet()` but has been modified to support \textpkg{QTLExperiment} objects. 
+An UpSet plot has a similar function to a Venn Diagram, in that the goal is to visualise the number of values in each combination of sets. 
+The rows represent sets while the columns list the possible combinations of these sets. 
+Above the columns there is a bar plot which shows the size of that combination of sets. 
+The columns are ordered in order of the most populated combination through to the least, and combinations with 0 are not shown. 
+
+While a Venn Diagram is restricted to between 2 and 4 interacting sets, an UpSet plot can depict many more sets. 
+However, it can become difficult to interpret these plots when there are more sets as there will be many more columns. 
+With $n$ states, up to $\sum_{1}^n {n \choose i} = 2^n - 1$ columns may need to be plotted.
+For example, with 5 states, up to 31 columns may be needed, depending on the data set. 
+
+In \textpkg{QTLExperiment}, UpSet plots are used as a way to show the number of QTLs which are significant in multiple states.
+The solid black circles and lines are used to indicate which combination of tissue types is being measured, and the barplot above shows the number of eQTLs in those states. 
+
+
+\footnotesize
+```{r plot-upset-gtex, fig.asp = 1/2}
+qtle_subset <- qtle_top[, c("Muscle", "Lung", "Thyroid", "Spleen", "Blood")]
+
+plotUpSet(qtle_subset, annotateColsBy=c("nSignificant", "state_id"))
+```
+\normalsize
+
+## Characterizing multi-state QTL patterns
+
+The function `runTestMetrics()` characterises each test (row) into categories including 'global', 'multistate' and 'unique'. 
+For more detail, see section \ref{run_test_metrics}.
+This information is added into the rowData of the QTLExperiment. 
+\footnotesize
+```{r}
+qtle_top <- runTestMetrics(qtle_top)
+
+table(rowData(qtle_top)$qtl_type)
+```
+\normalsize
+
+The function `plotCompareStates()` visualises the multi-state categories for two specified states, given as character vectors in arguments `x` and `y`.
+The plot below shows that for the states 'Muscle' and 'Blood', some tests are only significant in one state, and a large number are shared, but there are very few diverging eQTLs.
+A diverging eQTL has a different direction of effect on gene expression in one state compared with another state. 
+The output is shown in figure \ref{plotCompareStates}.
+\footnotesize
+```{r, eval = FALSE}
+plotCompareStates(qtle_top, x="Muscle", y="Blood")$plot
+```
+\normalsize
+
+```{r, eval = FALSE, echo = FALSE, include = FALSE}
+p1 <- plotCompareStates(qtle_top, x="Muscle", y="Blood")$plot
+
+png("figures/plotCompareStates_gtex.png", width = 1500, height = 800, res = 300)
+p1
+dev.off()
+```
+
+\begin{figure}[h] 
+\centering
+\includegraphics{Figures/plotCompareStates_gtex.png}
+\caption{Output of the \texttt{plotCompareStates()} function.}
+\label{plotCompareStates}
+\end{figure}
+
+
+The function `plotQTLClusters()` produces a heatmap of the data, based on the `ComplexHeatmap::Heatmap()` function.
+Each row of the heatmap corresponds to an association test (feature ID and variant ID), and each column is a state. 
+The colour value is determined by the gene expression effect size for that state: colours close to white indicate no change in gene expression for that state; red indicate that the eQTL has a positive effect on gene expression in that state, and blue values indicate the eQTL reduces the amount of gene expression.
+
+The data has been filtered to select only rows which have an effect in multiple states. 
+I have also downsampled the data to 2000 rows to aid visibility of the graph. 
+
+\footnotesize
+```{r plot-qtl-clusters-gtex}
+qtle_top_ms <- subset(qtle_top, qtl_type_simple == "multistate")
+
+# Downsample as there are 20,000 rows. 
+qtle_ds <- qtle_top_ms[sample(nrow(qtle_top_ms), 2000), ]
+
+plotQTLClusters(
+  qtle_ds, 
+  annotateColsBy="broad_type",
+  annotateRowsBy=c("qtl_type"))
+```
+\normalsize
+
+# Conclusion
+
+This chapter demonstrated the core functionality of the \textpkg{QTLExperiment} and \textpkg{multistateQTL} packages using a data set containing a number of different tissue types.
+We covered functions which can be used to subset and manipulate the data, perform calculations, identify significant tests, and visualise various aspects of the data. 
+In this chapter, the states we investigated were tissues, which is clinical information that is known about the samples from the beginning of the analysis.
+In the next chapter, we will discuss a more detailed analysis involving single-cell data, where state is 'cell-type'. 
+
+
+```{r, echo = FALSE}
+knitr::knit_exit()
+```
+
+# Session Info
+
+```{r session-info}
+sessionInfo()
+```
