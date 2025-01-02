@@ -1,0 +1,189 @@
+---
+output: 
+  pdf_document:
+    keep_tex: true
+editor_options: 
+  chunk_output_type: console
+---
+
+\newcommand\textpkg[1]{\textbf{\texttt{#1}}}
+
+\LARGE
+
+```{r, include = FALSE}
+# Demonstration of QTLExperiment and multistateQTL with Lung data
+# Amelia Dunstone
+# 2024-10-16
+
+# Analysis for Final Presentation
+```
+
+```{r setup, message = FALSE, results = 'hide', echo = FALSE}
+library(dplyr)
+library(here)
+```
+
+```{r knitr-options, echo=FALSE}
+knitr::opts_chunk$set(
+    # warning=FALSE, 
+    # error=FALSE, 
+    # message=FALSE, 
+    fig.height=6, 
+    fig.width=8)
+```
+
+
+```{r, echo = TRUE, eval = FALSE}
+# Installation instructions using Bioconductor
+if (!require("BiocManager", quietly=TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("QTLExperiment")
+BiocManager::install("multistateQTL")
+```
+
+```{r, message = FALSE, results = 'hide', warning = FALSE}
+library(QTLExperiment)
+library(multistateQTL)
+```
+
+```{r}
+qtle <- readRDS("Natri_2024_Lung/data/qtle_mashr_10_states.rds")
+```
+
+
+```{r}
+qtle
+```
+
+\newpage
+
+# Basic operations
+
+```{r}
+dim(qtle)
+```
+
+```{r}
+qtle[2,5]
+```
+
+
+```{r}
+betas(qtle)[1:5, 1:2]
+errors(qtle)[1:5, 1:2]
+```
+
+
+```{r, echo = FALSE}
+state_id(qtle) <-  c("Muscle", "Blood", "Skin", "Adipose", "Thyroid", "Lung",
+    "Fibroblast", "Stomach", "Pancreas", "Pituitary", "Spleen", "Liver", 
+    "Brain_Cerebellum", "Brain_Cortex")
+```
+
+```{r, echo = FALSE}
+qtle$broad_type <- c("Muscle", "Blood", "Skin", "Adipose", "Thyroid", "Lung",
+    "Fibroblast", "Stomach", "Pancreas", "Pituitary", "Spleen", "Liver", 
+    "Brain", "Brain")
+```
+
+
+```{r}
+state_id(qtle)
+
+# Number of genes
+length(table(feature_id(qtle)))
+# [1] 33579
+```
+
+```{r}
+head(rowData(qtle))
+```
+
+\newpage
+
+# Manipulate and Filter
+
+## Dealing with missing data
+
+
+```{r, include = FALSE}
+tab <- table(apply(is.na(pvalues(qtle)), MARGIN = 1, FUN = sum)) 
+names(tab) <- state_id(qtle)
+tab
+```
+
+```{r}
+qtle_na <- getComplete(qtle, n=0.9, verbose=TRUE)
+dim(qtle_na)
+```
+
+```{r}
+qtle_na <- replaceNAs(qtle_na)
+```
+
+```{r}
+betas(qtle_na)[1:5, 1:4]
+```
+
+\newpage
+
+# Calculations
+
+## Calling significance
+
+```{r, include = FALSE}
+message("Median number of significant tests per state: ", 
+        median(colData(qtle_na)$nSignificant))
+```
+
+# Visualisations
+
+## Plotting global sharing
+
+```{r, fig.asp = 2/3}
+qtle_na <- callSignificance(qtle_na, assay="pvalues", thresh=0.05)
+qtle_sig <- getSignificant(qtle_na)
+qtle_top <- getTopHits(qtle_na, assay="pvalues", mode="state")
+qtle_top <- runPairwiseSharing(qtle_top)
+
+dim(qtle_top)
+
+plotPairwiseSharing(qtle_top, annotateColsBy=c("nSignificant", "broad_type"))
+```
+
+
+\newpage
+
+```{r, fig.asp = 1/2}
+qtle_subset <- qtle_top[, c("Muscle", "Lung", "Thyroid", "Spleen", "Blood")]
+
+plotUpSet(qtle_subset, annotateColsBy=c("nSignificant", "state_id"))
+```
+
+
+```{r}
+qtle_top <- runTestMetrics(qtle_top)
+
+table(rowData(qtle_top)$qtl_type)
+```
+
+```{r}
+qtle_top_ms <- subset(qtle_top, qtl_type_simple == "multistate")
+
+# Downsample as there are 20,000 rows. 
+qtle_ds <- qtle_top_ms[sample(nrow(qtle_top_ms), 2000), ]
+
+plotQTLClusters(
+  qtle_ds, 
+  annotateColsBy="broad_type",
+  annotateRowsBy=c("qtl_type"))
+```
+
+
+
+# Session Info
+
+```{r session-info}
+sessionInfo()
+```
