@@ -1,6 +1,6 @@
 # Thesis Sample Analyses
 
-This is a repository to accompany my thesis titled "Statistical methods and software tools for the analysis of multi-state QTL data".
+This is a repository to accompany my MSc thesis titled "Statistical methods and software tools for the analysis of multi-state QTL data".
 
 Note that the packages "QTLExperiment" and "multistateQTL" have their own repositories. 
 
